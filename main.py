@@ -2,7 +2,7 @@ import asyncio
 import logging
 import sys
 
-from datetime import datetime
+from datetime import datetime, timezone
 from dateutil.relativedelta import relativedelta
 from automation_server_client import AutomationServer, Workqueue, WorkItemError, Credential
 from kmd_nexus_client import NexusClient, CitizensClient, OrganizationsClient, GrantsClient, filter_references
@@ -43,7 +43,7 @@ async def process_workqueue(workqueue: Workqueue):
                 remove_relation(data)
 
                 if report_lendings_without_basket_grants:
-                    reporter.report(process_name, "Borgere med udlån uden indsats", {'Cpr': data.get("Cpr")})
+                    reporter.report(process_name, "Borgere med udlån uden indsats", {'Cpr': data["patientIdentifier"]["identifier"]})
 
                 tracker.track_task(process_name)        
 
@@ -88,7 +88,7 @@ def manage_related_basket_grants(citizen_data: dict):
             
             if not active_lending_matching_basket_grant:
                 logger.info(f"Trying to edit basket grant with id: {basket_grant['basketGrantId']} for citizen: {citizen_data['patientIdentifier']['identifier']}")
-                inactivate_basket_grant(citizen_data, basket_grant)
+                inactivate_basket_grant(citizen_data, basket_grant, elements)
 
 
 def get_active_lending_matching_basket_grant(citizen_data: dict, basket_grant: dict) -> bool:
@@ -101,29 +101,29 @@ def get_active_lending_matching_basket_grant(citizen_data: dict, basket_grant: d
     return False
 
 
-def inactivate_basket_grant(citizen_data: dict, basket_grant: dict):
+def inactivate_basket_grant(citizen_data: dict, basket_grant: dict, elements: dict):
     transitions = {
         "Bestilt": "Afslut",
         "Bevilliget": "Annullér",
         "Ændret": "Afslut"
     }
 
-    if basket_grant["workflowState"] not in transitions:
-        logging.error(f"Kan ikke afslutte indsats på borger {citizen_data['cpr']}")
+    if basket_grant["workflowState"]["name"] not in transitions:
+        logging.error(f"Kan ikke afslutte indsats på borger {citizen_data['patientIdentifier']['identifier']} med status {basket_grant['workflowState']['name']}")
         return
 
-    if basket_grant["workflowState"] == "Bevilliget":
-        requested_date = datetime.strptime(basket_grant["workflowRequestedDate"], "%d-%m-%Y")
-        now = datetime.now()
+    if basket_grant["workflowState"]["name"] == "Bevilliget":
+        requested_date = elements["workflowRequestedDate"]
+        now = datetime.now(timezone.utc)
         one_month_ago = now - relativedelta(months=1)
         
-        if requested_date < one_month_ago:
-            logging.warning(f"Potentielt aktivt udlån på borger {citizen_data['cpr']}")
+        if requested_date > one_month_ago:
+            logging.warning(f"Potentielt aktivt udlån på borger {citizen_data['patientIdentifier']['identifier']}")
             return        
 
     field_updates = {}    
     
-    if(transitions[basket_grant["workflowState"]] == "Afslut"):
+    if(transitions[basket_grant["workflowState"]["name"]] == "Afslut"):
         field_updates = {
             "billingEndDate": datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + '+0000',
             "basketGrantEndDate": datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + '+0000'
@@ -133,7 +133,7 @@ def inactivate_basket_grant(citizen_data: dict, basket_grant: dict):
             "cancelledDate": datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + '+0000'            
         }
     
-    grants_client.edit_grant(basket_grant, field_updates, transitions[basket_grant["workflowState"]])    
+    grants_client.edit_grant(basket_grant, field_updates, transitions[basket_grant["workflowState"]["name"]])    
     
 
 def remove_relation(citizen_data: dict):    
