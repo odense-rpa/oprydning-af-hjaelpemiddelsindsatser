@@ -46,9 +46,9 @@ def populate_queue(workqueue: Workqueue):
 async def process_workqueue(workqueue: Workqueue):
     for item in workqueue:
         with item:
-            citizen = citizens_client.get_citizen(item.reference)
 
             try:
+                citizen = citizens_client.get_citizen(item.reference)
                 # Kontrollerer om borgeren har udlån uden indsats
                 if check_lendings_without_basket_grants(citizen):
                     reporter.report(
@@ -59,7 +59,9 @@ async def process_workqueue(workqueue: Workqueue):
 
                 inactivate_basket_grants(citizen)
                 remove_relation(citizen)
-
+            except ValueError as e:
+                logger.error(f"Error getting citizen data: {e}")
+                item.fail("Ugyldigt cpr-nummer")
             except WorkItemError as e:
                 item.fail(str(e))
 
