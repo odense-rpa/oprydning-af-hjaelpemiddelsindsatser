@@ -177,10 +177,10 @@ def inactivate_basket_grant(citizen: dict, basket_grant: dict):
     field_updates = {}
 
     if transitions[basket_grant["workflowState"]["name"]] == "Afslut":
-        field_updates["billingEndDate"] = datetime.now().astimezone()
-        field_updates["basketGrantEndDate"] = datetime.now().astimezone()
+        field_updates["billingEndDate"] = datetime.now().astimezone().isoformat()
+        field_updates["basketGrantEndDate"] = datetime.now().astimezone().isoformat()
     else:
-        field_updates["cancelledDate"] = datetime.now().astimezone()
+        field_updates["cancelledDate"] = datetime.now().astimezone().isoformat()
 
     grants_client.edit_grant(
         basket_grant, field_updates, transitions[basket_grant["workflowState"]["name"]]
