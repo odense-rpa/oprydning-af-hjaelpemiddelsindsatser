@@ -75,6 +75,9 @@ def check_lendings_without_basket_grants(citizen_data: dict) -> bool:
     lending_without_basket_grant = False
     lendings = citizens_client.get_citizen_lendings(citizen_data)
 
+    if lendings is None:
+        return lending_without_basket_grant
+
     for lending in lendings:
         if (
             "grant" not in lending
