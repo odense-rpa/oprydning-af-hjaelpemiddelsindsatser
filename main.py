@@ -124,7 +124,7 @@ def inactivate_basket_grants(citizen: dict):
             continue
 
         if basket_grant["workflowState"]["name"] == "Bevilliget":
-            requested_date = elements["workflowRequestedDate"]
+            requested_date = datetime.fromisoformat(elements["workflowRequestedDate"])
 
             # Hvis udlånet er indenfor de sidste 31 dage, så skal det ikke afsluttes. Bemærk dato fr nexus har timezone info.
             if requested_date > datetime.now().astimezone() - timedelta(days=31):
@@ -152,6 +152,9 @@ def active_lendings(citizen: dict, basket_grant: dict) -> bool:
     return: bool - True if there are active lendings that match the basket grant, False otherwise.
     """
     lendings = citizens_client.get_citizen_lendings(citizen)
+
+    if lendings is None:
+        return False
 
     for lending in lendings:
         if str(basket_grant["basketGrantId"]) == str(
