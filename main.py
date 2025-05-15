@@ -124,7 +124,9 @@ def inactivate_basket_grants(citizen: dict):
             continue
 
         if basket_grant["workflowState"]["name"] == "Bevilliget":
-            requested_date = datetime.fromisoformat(elements["workflowRequestedDate"])
+            # Parsing af date fra nexus, passer ikke præcist med pythons datetime og derfor benyttes strptime
+            # til at parse datoen korrekt.
+            requested_date = datetime.strptime(elements["workflowRequestedDate"], "%Y-%m-%dT%H:%M:%S.%f%z")
 
             # Hvis udlånet er indenfor de sidste 31 dage, så skal det ikke afsluttes. Bemærk dato fr nexus har timezone info.
             if requested_date > datetime.now().astimezone() - timedelta(days=31):
