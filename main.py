@@ -49,6 +49,10 @@ async def process_workqueue(workqueue: Workqueue):
 
             try:
                 citizen = citizens_client.get_citizen(item.reference)
+
+                if citizen is None:                    
+                    continue
+
                 # Kontrollerer om borgeren har udlån uden indsats
                 if check_lendings_without_basket_grants(citizen):
                     reporter.report(
@@ -133,6 +137,12 @@ def inactivate_basket_grants(citizen: dict):
 
         if active_lendings(citizen, basket_grant):
             continue
+
+        basket_grant_end_date = elements.get("basketGrantEndDate")
+
+        if basket_grant_end_date:
+            if basket_grant_end_date > datetime.now().astimezone():
+                continue
 
         logger.info(
             f"Trying to edit basket grant with id: {basket_grant['basketGrantId']} for citizen: {citizen['patientIdentifier']['identifier']}"
