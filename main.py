@@ -239,7 +239,7 @@ if __name__ == "__main__":
     nexus_client = NexusClient(
         client_id=credential.username,
         client_secret=credential.password,
-        instance=credential.get_data_as_dict()["instance"],
+        instance=credential.data["instance"],
     )
     citizens_client = CitizensClient(nexus_client=nexus_client)
     organizations_client = OrganizationsClient(nexus_client=nexus_client)
