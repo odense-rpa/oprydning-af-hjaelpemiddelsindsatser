@@ -38,7 +38,7 @@ wheels = [
 [[package]]
 name = "automation-server-client"
 version = "0.1.0"
-source = { git = "https://github.com/odense-rpa/automation-server-client.git#9ab1c5873e0c9e36b41ecfff9f357c889a9545f2" }
+source = { git = "https://github.com/odense-rpa/automation-server-client.git#90c83af720c226916bd0106a27f7aecd429ff841" }
 dependencies = [
     { name = "python-dotenv" },
     { name = "requests" },
