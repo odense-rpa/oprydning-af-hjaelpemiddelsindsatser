@@ -165,6 +165,9 @@ def active_lendings(citizen: dict, basket_grant: dict) -> bool:
         return False
 
     for lending in lendings:
+        if "grant" not in lending or lending["grant"] is None:
+            continue
+        
         if str(basket_grant["basketGrantId"]) == str(
             lending["grant"]["originatorId"]
         ) or str(basket_grant["currentOrderGrantId"]) == str(
