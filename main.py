@@ -78,11 +78,19 @@ def check_lendings_without_basket_grants(citizen_data: dict) -> bool:
     """
     lending_without_basket_grant = False
     lendings = citizens_client.get_citizen_lendings(citizen_data)
+    white_listed_lending_statuses = [
+        "TO_BE_REPAIRED",
+        "SENT_TO_DEPOT",
+        "TO_BE_TAKEN_HOME",
+    ]
 
     if lendings is None:
         return lending_without_basket_grant
 
     for lending in lendings:
+        if lending["status"] in white_listed_lending_statuses:
+            continue
+        
         if (
             "grant" not in lending
             or lending["grant"]["originatorStatus"] == "Afsluttet"
