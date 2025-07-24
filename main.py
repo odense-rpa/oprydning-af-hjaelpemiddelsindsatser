@@ -12,19 +12,16 @@ from automation_server_client import (
     Credential,
 )
 from kmd_nexus_client import (
-    NexusClient,
-    CitizensClient,
-    OrganizationsClient,
-    GrantsClient,
-    filter_references,
+    NexusClientManager,    
 )
+from kmd_nexus_client.tree_helpers import (
+    filter_by_path,    
+)
+
 from odk_tools.tracking import Tracker
 from odk_tools.reporting import Reporter
 
-nexus_client: NexusClient = None
-citizens_client: CitizensClient = None
-organizations_client: OrganizationsClient = None
-grants_client: GrantsClient = None
+nexus_client_manager: NexusClientManager = None
 tracker: Tracker = None
 reporter: Reporter = None
 logger = None
@@ -32,15 +29,15 @@ process_name = "Oprydning af hjælpemiddelsindsatser"
 
 
 def populate_queue(workqueue: Workqueue):
-    organization = organizations_client.get_organization_by_name("Hjælpemiddelservice")
-    citizens = organizations_client.get_citizens_by_organization(organization)
+    organisation = nexus_client_manager.organisationer.hent_organisation_ved_navn("Hjælpemiddelservice")
+    borgere = nexus_client_manager.organisationer.hent_borgere_for_organisation(organisation)
 
-    for citizen in citizens:
+    for borger in borgere:
         try:
-            cpr = citizen["patientIdentifier"]["identifier"]
+            cpr = borger["patientIdentifier"]["identifier"]
             workqueue.add_item({}, cpr)
         except Exception as e:
-            logger.error(f"Error adding citizen to Queue {citizen}: {e}")
+            logger.error(f"Error adding citizen to Queue {borger}: {e}")
 
 
 async def process_workqueue(workqueue: Workqueue):
@@ -48,21 +45,21 @@ async def process_workqueue(workqueue: Workqueue):
         with item:
 
             try:
-                citizen = citizens_client.get_citizen(item.reference)
+                borger = nexus_client_manager.borgere.hent_borger(item.reference)
 
-                if citizen is None:                    
+                if borger is None:                    
                     continue
 
                 # Kontrollerer om borgeren har udlån uden indsats
-                if check_lendings_without_basket_grants(citizen):
+                if kontroller_udlån_uden_indsats(borger):
                     reporter.report(
                         process_name,
                         "Borgere med udlån uden indsats",
-                        {"Cpr": citizen["patientIdentifier"]["identifier"]},
+                        {"Cpr": borger["patientIdentifier"]["identifier"]},
                     )
 
-                inactivate_basket_grants(citizen)
-                remove_relation(citizen)
+                afslut_indsatser(borger)
+                fjern_organisations_relation_fra_borger(borger)
             except ValueError as e:
                 logger.error(f"Error getting citizen data: {e}")
                 item.fail("Ugyldigt cpr-nummer")
@@ -70,171 +67,172 @@ async def process_workqueue(workqueue: Workqueue):
                 item.fail(str(e))
 
 
-def check_lendings_without_basket_grants(citizen_data: dict) -> bool:
+def kontroller_udlån_uden_indsats(borger: dict) -> bool:
     """
-    Check if there are any lendings without a basket grant.
-    param citizen_data: dict - The citizen data.
-    return: bool - True if there are lendings without a basket grant, False otherwise.
+    Kontrollerer om borgeren har udlån uden en tilknyttet indsats.
+    param borger: dict - Borgerens data.
+    return: bool - True hvis der er udlån uden indsats, False ellers.
     """
-    lending_without_basket_grant = False
-    lendings = citizens_client.get_citizen_lendings(citizen_data)
-    white_listed_lending_statuses = [
+    fundet_udlån_uden_indsats = False
+    udlån = nexus_client_manager.borgere.hent_udlån(borger)
+    godkendte_status_for_udlån_uden_indsats = [
         "TO_BE_REPAIRED",
         "SENT_TO_DEPOT",
         "TO_BE_TAKEN_HOME",
     ]
 
-    if lendings is None:
-        return lending_without_basket_grant
+    if udlån is None:
+        return fundet_udlån_uden_indsats
 
-    for lending in lendings:
-        if lending["status"] in white_listed_lending_statuses:
+    for enkelt_udlån in udlån:
+        if enkelt_udlån["status"] in godkendte_status_for_udlån_uden_indsats:
             continue
         
         if (
-            "grant" not in lending
-            or lending["grant"]["originatorStatus"] == "Afsluttet"
-            or lending["grant"] is None
+            "grant" not in enkelt_udlån
+            or enkelt_udlån["grant"]["originatorStatus"] == "Afsluttet"
+            or enkelt_udlån["grant"] is None
         ):
-            logging.info(f"Lending found without basket grant: {lending}")
-            lending_without_basket_grant = True
+            logging.info(f"Lending found without basket grant: {enkelt_udlån}")
+            fundet_udlån_uden_indsats = True
 
-    return lending_without_basket_grant
+    return fundet_udlån_uden_indsats
 
 
-def inactivate_basket_grants(citizen: dict):
+def afslut_indsatser(borger: dict):
     """
-    Inactivate basket grants for a citizen if certain conditions are met.
-    param citizen: dict - The citizen data.
+    Afslutter indsats for en borger, hvis omstændighederne er opfyldt.
+    param citizen: dict - Borgerens data.
     """
-    pathway = citizens_client.get_citizen_pathway(citizen)
-    basket_grant_references = citizens_client.get_citizen_pathway_references(pathway)
-    filtered_references = filter_references(
-        basket_grant_references,
-        path="/Sundhedsfagligt grundforløb/*/Indsatser/basketGrantReference",
+    pathway = nexus_client_manager.borgere.hent_visning(borger)
+    indsats_referencer = nexus_client_manager.borgere.hent_referencer(pathway)
+    
+    filtrerede_indsats_referencer = filter_by_path(
+        indsats_referencer,
+        path_pattern="/Sundhedsfagligt grundforløb/*/Indsatser/basketGrantReference",
         active_pathways_only=False,
     )
 
-    for reference in filtered_references:
-        basket_grant = citizens_client.resolve_reference(reference)
+    for reference in filtrerede_indsats_referencer:
+        indsats = nexus_client_manager.hent_fra_reference(reference)
 
-        if basket_grant["workflowState"]["name"] in [
+        if indsats["workflowState"]["name"] in [
             "Afsluttet",
             "Annulleret",
             "Afslået",
         ]:
             continue
 
-        elements = grants_client.get_grant_elements(basket_grant)
+        indsats_elementer = nexus_client_manager.indsats.hent_indsats_elementer(indsats)
 
         # Store variationer i elements gør det svært at checke korrekt
         try:
-            name = elements["supplier"]["supplier"]["name"]
+            name = indsats_elementer["supplier"]["supplier"]["name"]
             if name != "Hjælpemiddelservice":
                 continue
         except Exception:
             continue
 
-        if basket_grant["workflowState"]["name"] == "Bevilliget":
+        if indsats["workflowState"]["name"] == "Bevilliget":
             # Hvis udlånet er indenfor de sidste 31 dage, så skal det ikke afsluttes. Bemærk dato fr nexus har timezone info.
-            if elements["workflowRequestedDate"] > datetime.now().astimezone() - timedelta(days=31):
+            if indsats_elementer["workflowRequestedDate"] > datetime.now().astimezone() - timedelta(days=31):
                 logging.warning(
-                    f"Potentielt aktivt udlån på borger {citizen['patientIdentifier']['identifier']}"
+                    f"Potentielt aktivt udlån på borger {borger['patientIdentifier']['identifier']}"
                 )
                 continue
 
-        if active_lendings(citizen, basket_grant):
+        if aktive_udlån(borger, indsats):
             continue
 
-        basket_grant_end_date = elements.get("basketGrantEndDate")
+        indsats_slut_dato = indsats_elementer.get("basketGrantEndDate")
 
-        if basket_grant_end_date:
-            if basket_grant_end_date > datetime.now().astimezone():
+        if indsats_slut_dato:
+            if indsats_slut_dato > datetime.now().astimezone():
                 continue
 
         logger.info(
-            f"Trying to edit basket grant with id: {basket_grant['basketGrantId']} for citizen: {citizen['patientIdentifier']['identifier']}"
+            f"Forsøger at redigere indsats med id: {indsats['basketGrantId']} for borger: {borger['patientIdentifier']['identifier']}"
         )
 
-        inactivate_basket_grant(citizen, basket_grant)
+        afslut_indsats(borger, indsats)
         tracker.track_task(process_name)
 
 
-def active_lendings(citizen: dict, basket_grant: dict) -> bool:
+def aktive_udlån(borger: dict, indsats: dict) -> bool:
     """
-    Check if there are any active lendings that match the basket grant.
-    param citizen_data: dict - The citizen.
-    param basket_grant: dict - The basket grant.
-    return: bool - True if there are active lendings that match the basket grant, False otherwise.
+    Kontrollerer om der er aktive udlån, der matcher indsatsen.
+    param borger: dict - Borgeren.
+    param indsats: dict - Indsatsen.
+    return: bool - True hvis der er aktive udlån, der matcher indsatsen, ellers False.
     """
-    lendings = citizens_client.get_citizen_lendings(citizen)
+    udlån = nexus_client_manager.borgere.hent_udlån(borger)
 
-    if lendings is None:
+    if udlån is None:
         return False
 
-    for lending in lendings:
-        if "grant" not in lending or lending["grant"] is None:
+    for enkelt_udlån in udlån:
+        if "grant" not in enkelt_udlån or enkelt_udlån["grant"] is None:
             continue
         
-        if str(basket_grant["basketGrantId"]) == str(
-            lending["grant"]["originatorId"]
-        ) or str(basket_grant["currentOrderGrantId"]) == str(
-            lending["grant"]["originatorId"]
+        if str(indsats["basketGrantId"]) == str(
+            enkelt_udlån["grant"]["originatorId"]
+        ) or str(indsats["currentOrderGrantId"]) == str(
+            enkelt_udlån["grant"]["originatorId"]
         ):
             return True
 
     return False
 
 
-def inactivate_basket_grant(citizen: dict, basket_grant: dict):
+def afslut_indsats(borger: dict, indsats: dict):
     """
-    Inactivate a basket grant for a citizen.
-    param citizen: dict - The citizen data.
-    param basket_grant: dict - The basket grant data.
+    Afslutter en indsats på en borger.
+    param borger: dict - Borgerens data.
+    param indsats: dict - Indsatsens data.
     """
-    transitions = {"Bestilt": "Afslut", "Bevilliget": "Annullér", "Ændret": "Afslut"}
+    transitioner = {"Bestilt": "Afslut", "Bevilliget": "Annullér", "Ændret": "Afslut"}
 
-    if basket_grant["workflowState"]["name"] not in transitions:
+    if indsats["workflowState"]["name"] not in transitioner:
         raise WorkItemError(
-            f"Kan ikke afslutte indsats på borger {citizen['patientIdentifier']['identifier']} med status {basket_grant['workflowState']['name']}"
+            f"Kan ikke afslutte indsats på borger {borger['patientIdentifier']['identifier']} med status {indsats['workflowState']['name']}"
         )
 
-    field_updates = {}
+    opdateringer_til_indsats = {}
 
-    if transitions[basket_grant["workflowState"]["name"]] == "Afslut":
-        field_updates["billingEndDate"] = datetime.now().astimezone().isoformat()
-        field_updates["basketGrantEndDate"] = datetime.now().astimezone().isoformat()
+    if transitioner[indsats["workflowState"]["name"]] == "Afslut":
+        opdateringer_til_indsats["billingEndDate"] = datetime.now().astimezone().isoformat()
+        opdateringer_til_indsats["basketGrantEndDate"] = datetime.now().astimezone().isoformat()
     else:
-        field_updates["cancelledDate"] = datetime.now().astimezone().isoformat()
+        opdateringer_til_indsats["cancelledDate"] = datetime.now().astimezone().isoformat()
 
-    grants_client.edit_grant(
-        basket_grant, field_updates, transitions[basket_grant["workflowState"]["name"]]
+    nexus_client_manager.indsats.rediger_indsats(
+        indsats, opdateringer_til_indsats, transitioner[indsats["workflowState"]["name"]]
     )
 
 
-def remove_relation(citizen_data: dict):
+def fjern_organisations_relation_fra_borger(borger: dict):
     """
-    Remove the relation between the citizen and the organization if there are no active lendings.
-    param citizen_data: dict - The citizen data.
+    Fjerner borgerens relation til organisationen.
+    :param borger: Borgerens data.
     """
-    lendings = citizens_client.get_citizen_lendings(citizen_data)
+    udlån = nexus_client_manager.borgere.hent_udlån(borger)
 
-    if len(lendings) == 0:
-        organization_name = "Hjælpemiddelservice"
-        organizations = organizations_client.get_organizations_by_citizen(citizen_data)
+    if len(udlån) == 0:
+        organisationsnavn = "Hjælpemiddelservice"
+        organisationer = nexus_client_manager.organisationer.hent_organisationer_for_borger(borger)
 
-        filtered_organization = next(
+        borger_organisation_relation = next(
             (
                 rel
-                for rel in organizations
-                if rel["organization"]["name"] == organization_name
+                for rel in organisationer
+                if rel["organization"]["name"] == organisationsnavn
             ),
             None,
         )
 
-        if filtered_organization is not None:
-            organizations_client.remove_citizen_from_organization(
-                dict(filtered_organization)
+        if borger_organisation_relation is not None:
+            nexus_client_manager.organisationer.fjern_borger_fra_organisation(
+                dict(borger_organisation_relation)
             )
             tracker.track_partial_task(process_name)
 
@@ -247,14 +245,11 @@ if __name__ == "__main__":
     tracking_credential = Credential.get_credential("Odense SQL Server")
     reporting_credential = Credential.get_credential("RoboA")
 
-    nexus_client = NexusClient(
+    nexus_client = NexusClientManager(
         client_id=credential.username,
         client_secret=credential.password,
         instance=credential.data["instance"],
     )
-    citizens_client = CitizensClient(nexus_client=nexus_client)
-    organizations_client = OrganizationsClient(nexus_client=nexus_client)
-    grants_client = GrantsClient(nexus_client=nexus_client)
 
     tracker = Tracker(
         username=tracking_credential.username, password=tracking_credential.password
