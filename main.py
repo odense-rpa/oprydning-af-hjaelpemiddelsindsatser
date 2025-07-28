@@ -25,8 +25,8 @@ nexus: NexusClientManager
 tracker: Tracker
 reporter: Reporter
 
-process_name = "Oprydning af hjælpemiddelsindsatser"
-logger = logging.getLogger(process_name)
+proces_navn = "Oprydning af hjælpemiddelsindsatser"
+logger = logging.getLogger(proces_navn)
 
 
 def populate_queue(workqueue: Workqueue):
@@ -54,7 +54,7 @@ async def process_workqueue(workqueue: Workqueue):
                 # Kontrollerer om borgeren har udlån uden indsats
                 if kontroller_udlån_uden_indsats(borger):
                     reporter.report(
-                        process_name,
+                        proces_navn,
                         "Borgere med udlån uden indsats",
                         {"Cpr": borger["patientIdentifier"]["identifier"]},
                     )
@@ -162,7 +162,7 @@ def afslut_indsatser(borger: dict):
         )
 
         afslut_indsats(borger, indsats)
-        tracker.track_task(process_name)
+        tracker.track_task(proces_navn)
 
 
 def aktive_udlån(borger: dict, indsats: dict) -> bool:
@@ -241,7 +241,7 @@ def fjern_organisations_relation_fra_borger(borger: dict):
             nexus.organisationer.fjern_borger_fra_organisation(
                 dict(borger_organisation_relation)
             )
-            tracker.track_partial_task(process_name)
+            tracker.track_partial_task(proces_navn)
 
 
 if __name__ == "__main__":    
