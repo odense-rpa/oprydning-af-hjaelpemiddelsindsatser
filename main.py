@@ -106,6 +106,12 @@ def afslut_indsatser(borger: dict):
     param citizen: dict - Borgerens data.
     """
     pathway = nexus.borgere.hent_visning(borger)
+
+    if pathway is None:
+        raise ValueError(
+            f"Kunne ikke finde -Alt for borger {borger['patientIdentifier']['identifier']}"
+        )
+
     indsats_referencer = nexus.borgere.hent_referencer(pathway)
     
     filtrerede_indsats_referencer = filter_by_path(
@@ -124,7 +130,7 @@ def afslut_indsatser(borger: dict):
         ]:
             continue
 
-        indsats_elementer = nexus.indsats.hent_indsats_elementer(indsats)
+        indsats_elementer = nexus.indsatser.hent_indsats_elementer(indsats)
 
         # Store variationer i elements gør det svært at checke korrekt
         try:
@@ -206,8 +212,8 @@ def afslut_indsats(borger: dict, indsats: dict):
     else:
         opdateringer_til_indsats["cancelledDate"] = datetime.now().astimezone().isoformat()
 
-    nexus.indsats.rediger_indsats(
-        indsats, opdateringer_til_indsats, transitioner[indsats["workflowState"]["name"]]
+    nexus.indsatser.rediger_indsats(
+        indsats=indsats, ændringer=opdateringer_til_indsats, overgang=transitioner[indsats["workflowState"]["name"]]
     )
 
 
@@ -239,6 +245,10 @@ def fjern_organisations_relation_fra_borger(borger: dict):
 
 
 if __name__ == "__main__":    
+    logging.basicConfig(
+        level=logging.INFO
+    )
+
     ats = AutomationServer.from_environment()
     workqueue = ats.workqueue()
 
