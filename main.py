@@ -21,23 +21,24 @@ from kmd_nexus_client.tree_helpers import (
 from odk_tools.tracking import Tracker
 from odk_tools.reporting import Reporter
 
-nexus_client_manager: NexusClientManager = None
-tracker: Tracker = None
-reporter: Reporter = None
-logger = None
+nexus: NexusClientManager
+tracker: Tracker
+reporter: Reporter
+
 process_name = "Oprydning af hjælpemiddelsindsatser"
+logger = logging.getLogger(process_name)
 
 
 def populate_queue(workqueue: Workqueue):
-    organisation = nexus_client_manager.organisationer.hent_organisation_ved_navn("Hjælpemiddelservice")
-    borgere = nexus_client_manager.organisationer.hent_borgere_for_organisation(organisation)
+    organisation = nexus.organisationer.hent_organisation_ved_navn("Hjælpemiddelservice")
+    borgere = nexus.organisationer.hent_borgere_for_organisation(organisation)
 
     for borger in borgere:
         try:
             cpr = borger["patientIdentifier"]["identifier"]
             workqueue.add_item({}, cpr)
-        except Exception as e:
-            logger.error(f"Error adding citizen to Queue {borger}: {e}")
+        except Exception:
+            continue
 
 
 async def process_workqueue(workqueue: Workqueue):
@@ -45,7 +46,7 @@ async def process_workqueue(workqueue: Workqueue):
         with item:
 
             try:
-                borger = nexus_client_manager.borgere.hent_borger(item.reference)
+                borger = nexus.borgere.hent_borger(item.reference)
 
                 if borger is None:                    
                     continue
@@ -74,7 +75,7 @@ def kontroller_udlån_uden_indsats(borger: dict) -> bool:
     return: bool - True hvis der er udlån uden indsats, False ellers.
     """
     fundet_udlån_uden_indsats = False
-    udlån = nexus_client_manager.borgere.hent_udlån(borger)
+    udlån = nexus.borgere.hent_udlån(borger)
     godkendte_status_for_udlån_uden_indsats = [
         "TO_BE_REPAIRED",
         "SENT_TO_DEPOT",
@@ -104,8 +105,8 @@ def afslut_indsatser(borger: dict):
     Afslutter indsats for en borger, hvis omstændighederne er opfyldt.
     param citizen: dict - Borgerens data.
     """
-    pathway = nexus_client_manager.borgere.hent_visning(borger)
-    indsats_referencer = nexus_client_manager.borgere.hent_referencer(pathway)
+    pathway = nexus.borgere.hent_visning(borger)
+    indsats_referencer = nexus.borgere.hent_referencer(pathway)
     
     filtrerede_indsats_referencer = filter_by_path(
         indsats_referencer,
@@ -114,7 +115,7 @@ def afslut_indsatser(borger: dict):
     )
 
     for reference in filtrerede_indsats_referencer:
-        indsats = nexus_client_manager.hent_fra_reference(reference)
+        indsats = nexus.hent_fra_reference(reference)
 
         if indsats["workflowState"]["name"] in [
             "Afsluttet",
@@ -123,7 +124,7 @@ def afslut_indsatser(borger: dict):
         ]:
             continue
 
-        indsats_elementer = nexus_client_manager.indsats.hent_indsats_elementer(indsats)
+        indsats_elementer = nexus.indsats.hent_indsats_elementer(indsats)
 
         # Store variationer i elements gør det svært at checke korrekt
         try:
@@ -165,7 +166,7 @@ def aktive_udlån(borger: dict, indsats: dict) -> bool:
     param indsats: dict - Indsatsen.
     return: bool - True hvis der er aktive udlån, der matcher indsatsen, ellers False.
     """
-    udlån = nexus_client_manager.borgere.hent_udlån(borger)
+    udlån = nexus.borgere.hent_udlån(borger)
 
     if udlån is None:
         return False
@@ -205,7 +206,7 @@ def afslut_indsats(borger: dict, indsats: dict):
     else:
         opdateringer_til_indsats["cancelledDate"] = datetime.now().astimezone().isoformat()
 
-    nexus_client_manager.indsats.rediger_indsats(
+    nexus.indsats.rediger_indsats(
         indsats, opdateringer_til_indsats, transitioner[indsats["workflowState"]["name"]]
     )
 
@@ -215,11 +216,11 @@ def fjern_organisations_relation_fra_borger(borger: dict):
     Fjerner borgerens relation til organisationen.
     :param borger: Borgerens data.
     """
-    udlån = nexus_client_manager.borgere.hent_udlån(borger)
+    udlån = nexus.borgere.hent_udlån(borger)
 
     if len(udlån) == 0:
         organisationsnavn = "Hjælpemiddelservice"
-        organisationer = nexus_client_manager.organisationer.hent_organisationer_for_borger(borger)
+        organisationer = nexus.organisationer.hent_organisationer_for_borger(borger)
 
         borger_organisation_relation = next(
             (
@@ -231,13 +232,13 @@ def fjern_organisations_relation_fra_borger(borger: dict):
         )
 
         if borger_organisation_relation is not None:
-            nexus_client_manager.organisationer.fjern_borger_fra_organisation(
+            nexus.organisationer.fjern_borger_fra_organisation(
                 dict(borger_organisation_relation)
             )
             tracker.track_partial_task(process_name)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":    
     ats = AutomationServer.from_environment()
     workqueue = ats.workqueue()
 
@@ -245,7 +246,7 @@ if __name__ == "__main__":
     tracking_credential = Credential.get_credential("Odense SQL Server")
     reporting_credential = Credential.get_credential("RoboA")
 
-    nexus_client = NexusClientManager(
+    nexus = NexusClientManager(
         client_id=credential.username,
         client_secret=credential.password,
         instance=credential.data["instance"],
