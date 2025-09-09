@@ -207,9 +207,9 @@ def afslut_indsats(borger: dict, indsats: dict):
     opdateringer_til_indsats = {}
 
     if transitioner[indsats["workflowState"]["name"]] == "Afslut":        
-        opdateringer_til_indsats["basketGrantEndDate"] = datetime.now().astimezone().isoformat()
+        opdateringer_til_indsats["basketGrantEndDate"] = datetime.now().astimezone()
     else:
-        opdateringer_til_indsats["cancelledDate"] = datetime.now().astimezone().isoformat()
+        opdateringer_til_indsats["cancelledDate"] = datetime.now().astimezone()
 
     nexus.indsatser.rediger_indsats(
         indsats=indsats, ændringer=opdateringer_til_indsats, overgang=transitioner[indsats["workflowState"]["name"]]
