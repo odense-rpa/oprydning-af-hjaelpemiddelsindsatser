@@ -199,7 +199,10 @@ def afslut_indsats(borger: dict, indsats: dict):
     """
     transitioner = {"Bestilt": "Afslut", "Bevilliget": "Annullér", "Ændret": "Afslut"}
 
-    if indsats["workflowState"]["name"] not in transitioner:
+    if indsats["workflowState"]["name"] not in transitioner:        
+        logger.info(
+            f"Kan ikke afslutte indsats på borger {borger['patientIdentifier']['identifier']} med status {indsats['workflowState']['name']}"
+        )
         raise WorkItemError(
             f"Kan ikke afslutte indsats på borger {borger['patientIdentifier']['identifier']} med status {indsats['workflowState']['name']}"
         )
