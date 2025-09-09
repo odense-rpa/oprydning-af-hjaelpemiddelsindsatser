@@ -206,8 +206,7 @@ def afslut_indsats(borger: dict, indsats: dict):
 
     opdateringer_til_indsats = {}
 
-    if transitioner[indsats["workflowState"]["name"]] == "Afslut":
-        opdateringer_til_indsats["billingEndDate"] = datetime.now().astimezone().isoformat()
+    if transitioner[indsats["workflowState"]["name"]] == "Afslut":        
         opdateringer_til_indsats["basketGrantEndDate"] = datetime.now().astimezone().isoformat()
     else:
         opdateringer_til_indsats["cancelledDate"] = datetime.now().astimezone().isoformat()
