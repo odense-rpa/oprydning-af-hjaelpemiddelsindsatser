@@ -3,8 +3,6 @@ import logging
 import sys
 
 from datetime import datetime, timedelta
-
-# from dateutil.relativedelta import relativedelta
 from automation_server_client import (
     AutomationServer,
     Workqueue,
@@ -17,13 +15,11 @@ from kmd_nexus_client import (
 from kmd_nexus_client.tree_helpers import (
     filter_by_path,    
 )
-
 from odk_tools.tracking import Tracker
-from odk_tools.reporting import Reporter
+from odk_tools.reporting import report
 
 nexus: NexusClientManager
 tracker: Tracker
-reporter: Reporter
 
 proces_navn = "Oprydning af hjælpemiddelsindsatser"
 logger = logging.getLogger(proces_navn)
@@ -31,6 +27,10 @@ logger = logging.getLogger(proces_navn)
 
 def populate_queue(workqueue: Workqueue):
     organisation = nexus.organisationer.hent_organisation_ved_navn("Hjælpemiddelservice")
+
+    if organisation is None:    
+        return
+
     borgere = nexus.organisationer.hent_borgere_for_organisation(organisation)
 
     for borger in borgere:
@@ -51,13 +51,16 @@ async def process_workqueue(workqueue: Workqueue):
                 if borger is None:                    
                     continue
 
+
                 # Kontrollerer om borgeren har udlån uden indsats
                 if kontroller_udlån_uden_indsats(borger):
-                    reporter.report(
-                        proces_navn,
-                        "Borgere med udlån uden indsats",
-                        {"Cpr": borger["patientIdentifier"]["identifier"]},
-                    )
+                    report(
+                        report_id="oprydning_af_hjaelpemiddelsindsatser",
+                        group="Borgere med udlån uden indsats",
+                        json={
+                            "Cpr": borger.get("patientIdentifier").get("identifier")                                             
+                        }
+                    )                    
 
                 afslut_indsatser(borger)
                 fjern_organisations_relation_fra_borger(borger)
@@ -266,10 +269,6 @@ if __name__ == "__main__":
 
     tracker = Tracker(
         username=tracking_credential.username, password=tracking_credential.password
-    )
-
-    reporter = Reporter(
-        username=reporting_credential.username, password=reporting_credential.password
     )
 
     logger = logging.getLogger(__name__)
