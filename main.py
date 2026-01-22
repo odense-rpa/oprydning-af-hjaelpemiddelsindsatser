@@ -64,6 +64,14 @@ async def process_workqueue(workqueue: Workqueue):
 
                 afslut_indsatser(borger)
                 fjern_organisations_relation_fra_borger(borger)
+                
+                report(
+                        report_id="oprydning_af_hjaelpemiddelsindsatser",
+                        group="Kontrollerede borgere",
+                        json={
+                            "Cpr": borger.get("patientIdentifier").get("identifier")                                             
+                        }
+                    )
             except ValueError as e:
                 logger.error(f"Error getting citizen data: {e}")
                 item.fail("Ugyldigt cpr-nummer")
