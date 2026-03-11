@@ -129,6 +129,10 @@ def afslut_indsatser(borger: dict):
         indsats_referencer,
         path_pattern="/Sundhedsfagligt grundforløb/*/Indsatser/basketGrantReference",
         active_pathways_only=False,
+    ) + filter_by_path(
+        indsats_referencer,
+        path_pattern="/Ældre og sundhedsfagligt grundforløb/*/Indsatser/basketGrantReference",
+        active_pathways_only=False,
     )
 
     for reference in filtrerede_indsats_referencer:
