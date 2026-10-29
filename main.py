@@ -255,8 +255,10 @@ def fjern_organisations_relation_fra_borger(borger: dict):
         )
 
         if borger_organisation_relation is not None:
-            nexus.organisationer.fjern_borger_fra_organisation(
-                dict(borger_organisation_relation)
+            nexus.organisationer.opdater_borger_organisations_relation(
+                relation=dict(borger_organisation_relation),
+                slut_dato=datetime.now().date(),
+                primær_organisation=False,
             )
             tracker.track_partial_task(proces_navn)
 
